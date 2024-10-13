@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "sql-server"
+version = "0.1.0"
+description = ""
+authors = ["Nitish Sharma <nisharma@linkedin.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+fastapi = "^0.115.0"
+uvicorn = "^0.31.1"
+sqlalchemy = "^2.0.35"
+aioredis = "^2.0.1"
+databases = "^0.9.0"
+psycopg2-binary = "^2.9.9"
+pydantic = "^2.9.2"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
