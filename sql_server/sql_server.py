@@ -7,12 +7,13 @@ from redis_cache import cache_query
 from entitlement_validator import validate_entitlements
 from db_connection import db_session
 from saas_auth import validate_saas_tokens
+from query_optimizer import check_indexed_filters, get_db_query_slo
 
 app = FastAPI()
 
 # Request and response schema definitions
 class SQLQueryRequest(BaseModel):
-    sql_query: str = Field(..., example="SELECT name, email FROM salesforce.contacts")
+    sql_query: str = Field(..., example="SELECT name, email FROM salesforce.contacts WHERE created_date > '2024-01-01' AND status = 'Active'")
     user_context: Dict
     enterprise_context: Dict
     execution_prefs: Dict
@@ -38,6 +39,9 @@ async def execute_query(request: SQLQueryRequest):
 
         # Check if real-time query or scheduled
         if request.execution_prefs.get("real_time", True):
+            # Check if query is eligible for real-time execution
+            if not is_query_eligible_for_realtime(request.sql_query):
+                raise HTTPException(status_code=400, detail="Query does not meet real-time execution requirements")
             result = await handle_real_time_query(request.sql_query, request.user_context, request.enterprise_context)
         else:
             result = handle_scheduled_query(request.sql_query, request.user_context, request.enterprise_context)
@@ -46,7 +50,6 @@ async def execute_query(request: SQLQueryRequest):
 
     except Exception as e:
         return {"status": "failed", "data": [], "error": str(e)}
-
 
 async def handle_real_time_query(sql_query: str, user_context: dict, enterprise_context: dict):
     """
@@ -69,7 +72,6 @@ async def handle_real_time_query(sql_query: str, user_context: dict, enterprise_
     except SQLAlchemyError as e:
         raise Exception(f"Error executing query: {str(e)}")
 
-
 def handle_scheduled_query(sql_query: str, user_context: dict, enterprise_context: dict):
     """
     Handles scheduled queries by queuing them for offline processing and returning a query job ID for tracking.
@@ -80,6 +82,29 @@ def handle_scheduled_query(sql_query: str, user_context: dict, enterprise_contex
     # Simulate returning a job link or ID for query tracking
     return {"job_id": job_id, "status": "queued"}
 
+def is_query_eligible_for_realtime(sql_query: str) -> bool:
+    """
+    Check if a query meets real-time execution conditions.
+    1. Query is filtered on indices.
+    2. Query does not have JOIN, GROUP BY, or INSERT operations.
+    3. DB query SLO registered is not greater than 5 seconds.
+    """
+    # Check if the query is filtered on indexed columns
+    if not check_indexed_filters(sql_query):
+        return False
+
+    # Check the query type: should not include JOIN, GROUP BY, or INSERT operations
+    query_type = identify_query_type(sql_query)
+    if query_type in ["join", "aggregation", "insert"]:
+        return False
+
+    # Check the SLO for the query; it should not exceed 5 seconds
+    slo = get_db_query_slo(sql_query)
+    if slo > 5:
+        return False
+
+    # All conditions met, query is eligible for real-time execution
+    return True
 
 def apply_pre_filters(sql_query: str):
     """
@@ -89,7 +114,6 @@ def apply_pre_filters(sql_query: str):
     # Add logic for pre-filtering like optimizing indexed conditions and applying constraints
     return sql_query
 
-
 def apply_post_filters(result_set: List[Dict], user_context: dict):
     """
     Applies post-filters on the result set after query execution based on entitlements and user permissions.
@@ -97,7 +121,6 @@ def apply_post_filters(result_set: List[Dict], user_context: dict):
     """
     # Post-filtering can remove fields from the result set that the user is not entitled to view
     return result_set
-
 
 def identify_query_type(sql_query: str):
     """
@@ -107,7 +130,8 @@ def identify_query_type(sql_query: str):
         return "join"
     elif "group by" in sql_query.lower() or "sum(" in sql_query.lower():
         return "aggregation"
+    elif "insert" in sql_query.lower():
+        return "insert"
     elif "select" in sql_query.lower():
         return "projection"
     return "unknown"
-
