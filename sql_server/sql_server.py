@@ -8,6 +8,7 @@ from entitlement_validator import validate_entitlements
 from db_connection import db_session
 from saas_auth import validate_saas_tokens
 from query_optimizer import check_indexed_filters, get_db_query_slo
+import uuid
 
 app = FastAPI()
 
@@ -76,7 +77,7 @@ def handle_scheduled_query(sql_query: str, user_context: dict, enterprise_contex
     """
     Handles scheduled queries by queuing them for offline processing and returning a query job ID for tracking.
     """
-    # Here we would enqueue the query in a task queue (like Celery or Kafka)
+    # Here we would enqueue the query in a task queue (Kafka)
     job_id = enqueue_query_task(sql_query, user_context, enterprise_context)
 
     # Simulate returning a job link or ID for query tracking
@@ -135,3 +136,51 @@ def identify_query_type(sql_query: str):
     elif "select" in sql_query.lower():
         return "projection"
     return "unknown"
+
+
+# A simulated task queue for demonstration purposes (you would replace this with an actual queue system)
+task_queue = []
+
+def enqueue_query_task(sql_query: str, user_context: dict, enterprise_context: dict) -> str:
+    """
+    Enqueues a query to a task queue for offline execution.
+    Generates a unique job ID to track the task and returns it to the user.
+    
+    In production, this function would interface with a task queue like Celery, RabbitMQ, Kafka, or any other
+    distributed job queue system.
+    
+    :param sql_query: The SQL query string to be executed.
+    :param user_context: Information about the user making the request (e.g., roles, user ID).
+    :param enterprise_context: Context about the enterprise (e.g., enterprise ID, SaaS applications).
+    :return: A unique job ID representing the query task.
+    """
+    # Generate a unique job ID
+    job_id = str(uuid.uuid4())
+    
+    # Simulate task data
+    task_data = {
+        "job_id": job_id,
+        "sql_query": sql_query,
+        "user_context": user_context,
+        "enterprise_context": enterprise_context,
+        "status": "queued"
+    }
+    
+    # Enqueue the task in the simulated task queue (replace this with actual task queue code)
+    task_queue.append(task_data)
+    
+    # Return the job ID to the user for tracking purposes
+    return job_id
+
+def get_task_status(job_id: str) -> dict:
+    """
+    Simulates fetching the status of a job by its job ID.
+    
+    :param job_id: The job ID to check.
+    :return: A dictionary containing the task status and any other relevant information.
+    """
+    # Search the simulated task queue for the task with the given job ID
+    for task in task_queue:
+        if task["job_id"] == job_id:
+            return task
+    return {"error": "Job not found"}
